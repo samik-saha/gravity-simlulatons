@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, RotateCcw, Settings2, Info } from 'lucide-react';
+import { Play, Pause, RotateCcw, Activity, Info } from 'lucide-react';
 
 interface Body {
   x: number;
@@ -17,25 +17,62 @@ interface Body {
 }
 
 const G = 1; // Gravitational constant (scaled for simulation)
-const MAX_TRAIL_LENGTH = 200;
+const MAX_TRAIL_LENGTH = 10000;
 
 const COLORS = ['#FF4D4D', '#4D94FF', '#4DFF88', '#FFD700', '#FF00FF', '#00FFFF'];
 
-const generateRandomBodies = (): Body[] => {
-  const bodies: Body[] = [];
-  for (let i = 0; i < 3; i++) {
-    bodies.push({
-      x: (Math.random() - 0.5) * 400,
-      y: (Math.random() - 0.5) * 400,
-      vx: (Math.random() - 0.5) * 1.5,
-      vy: (Math.random() - 0.5) * 1.5,
-      mass: 50 + Math.random() * 100,
-      color: COLORS[i % COLORS.length],
-      trail: [],
-    });
+const SCENARIOS = {
+  RANDOM: {
+    label: "Random Chaos",
+    bodies: () => {
+      const b: Body[] = [];
+      for (let i = 0; i < 3; i++) {
+        b.push({
+          x: (Math.random() - 0.5) * 400,
+          y: (Math.random() - 0.5) * 400,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: (Math.random() - 0.5) * 1.5,
+          mass: 50 + Math.random() * 100,
+          color: COLORS[i % COLORS.length],
+          trail: [],
+        });
+      }
+      return b;
+    }
+  },
+  BINARY_STAR: {
+    label: "Binary Star",
+    bodies: () => [
+      { x: -80, y: 0, vx: 0, vy: 0.8, mass: 150, color: COLORS[0], trail: [] },
+      { x: 80, y: 0, vx: 0, vy: -0.8, mass: 150, color: COLORS[1], trail: [] }
+    ]
+  },
+  PLANET_STAR: {
+    label: "Planet & Star",
+    bodies: () => [
+      { x: 0, y: 0, vx: 0, vy: 0, mass: 600, color: COLORS[3], trail: [] },
+      { x: 220, y: 0, vx: 0, vy: 1.65, mass: 10, color: COLORS[1], trail: [] }
+    ]
+  },
+  CIRCUMBINARY: {
+    label: "Circumbinary",
+    bodies: () => [
+      { x: -35, y: 0, vx: 0, vy: 1.8, mass: 200, color: COLORS[0], trail: [] },
+      { x: 35, y: 0, vx: 0, vy: -1.8, mass: 200, color: COLORS[1], trail: [] },
+      { x: 280, y: 0, vx: 0, vy: 1.2, mass: 5, color: COLORS[5], trail: [] }
+    ]
+  },
+  TWO_PLANETS: {
+    label: "Solar System",
+    bodies: () => [
+      { x: 0, y: 0, vx: 0, vy: 0, mass: 800, color: COLORS[3], trail: [] },
+      { x: 160, y: 0, vx: 0, vy: 2.22, mass: 5, color: COLORS[2], trail: [] },
+      { x: 280, y: 0, vx: 0, vy: 1.68, mass: 8, color: COLORS[4], trail: [] }
+    ]
   }
-  return bodies;
 };
+
+const generateRandomBodies = (): Body[] => SCENARIOS.BINARY_STAR.bodies();
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,7 +89,7 @@ export default function App() {
   const requestRef = useRef<number>(null);
 
   const updatePhysics = (currentBodies: Body[], currentTs: number) => {
-    const nextBodies = currentBodies.map(b => ({ ...b, trail: [...b.trail] }));
+    const nextBodies = currentBodies.map(b => ({ ...b }));
 
     // Calculate forces and update velocities
     for (let i = 0; i < nextBodies.length; i++) {
@@ -84,11 +121,7 @@ export default function App() {
       nextBodies[i].x += nextBodies[i].vx * currentTs;
       nextBodies[i].y += nextBodies[i].vy * currentTs;
 
-      // Update trail
-      nextBodies[i].trail.push({ x: nextBodies[i].x, y: nextBodies[i].y });
-      if (nextBodies[i].trail.length > MAX_TRAIL_LENGTH) {
-        nextBodies[i].trail.shift();
-      }
+      // Update trail moved to animate loop for performance
     }
 
     return nextBodies;
@@ -101,7 +134,15 @@ export default function App() {
         for (let i = 0; i < stepsPerFrame; i++) {
           current = updatePhysics(current, timeStep);
         }
-        return current;
+        
+        // Update trails once per frame for all physics steps to save performance
+        return current.map(b => {
+          const nextTrail = [...b.trail, { x: b.x, y: b.y }];
+          if (nextTrail.length > MAX_TRAIL_LENGTH) {
+            nextTrail.shift();
+          }
+          return { ...b, trail: nextTrail };
+        });
       });
     }
     requestRef.current = requestAnimationFrame(animate);
@@ -142,8 +183,8 @@ export default function App() {
           if (body.trail.length < 2) return;
           ctx.beginPath();
           ctx.strokeStyle = body.color;
-          ctx.lineWidth = 1.5;
-          ctx.globalAlpha = 0.4;
+          ctx.lineWidth = 1.2;
+          ctx.globalAlpha = 0.5;
           ctx.moveTo(body.trail[0].x, body.trail[0].y);
           for (let i = 1; i < body.trail.length; i++) {
             ctx.lineTo(body.trail[i].x, body.trail[i].y);
@@ -263,9 +304,28 @@ export default function App() {
     }
   };
 
+  const updateBody = (index: number, updates: Partial<Body>) => {
+    setBodies(prev => {
+      const next = [...prev];
+      if (index < 0 || index >= next.length) return prev;
+      next[index] = { ...next[index], ...updates };
+      if ('x' in updates || 'y' in updates) {
+        next[index].trail = [];
+      }
+      return next;
+    });
+  };
+
   const resetSimulation = () => {
-    setBodies(generateRandomBodies());
+    setBodies(SCENARIOS.BINARY_STAR.bodies());
     setOffset({ x: 0, y: 0 });
+  };
+
+  const loadScenario = (key: keyof typeof SCENARIOS) => {
+    setBodies(SCENARIOS[key].bodies());
+    setOffset({ x: 0, y: 0 });
+    setZoom(1);
+    setIsPlaying(true);
   };
 
   return (
@@ -283,115 +343,211 @@ export default function App() {
       />
 
       {/* UI Overlay */}
-      <div className="absolute top-0 left-0 p-8 z-10 pointer-events-none w-full flex justify-between items-start">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tighter uppercase italic mb-1">
-            {bodies.length}-Body System
-          </h1>
-          <p className="text-xs font-mono opacity-50 uppercase tracking-widest">
-            Gravitational Dynamics Simulation
-          </p>
-        </div>
-
-        <div className="pointer-events-auto flex gap-4">
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full transition-all border border-white/10"
-            title={isPlaying ? "Pause" : "Play"}
-          >
-            {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-          </button>
-          <button
-            onClick={resetSimulation}
-            className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full transition-all border border-white/10"
-            title="Reset"
-          >
-            <RotateCcw size={20} />
-          </button>
-          <button
-            onClick={() => setShowTrails(!showTrails)}
-            className={`p-3 backdrop-blur-md rounded-full transition-all border ${showTrails ? 'bg-white/30 border-white/40' : 'bg-white/10 border-white/10 hover:bg-white/20'}`}
-            title="Toggle Trails"
-          >
-            <Settings2 size={20} />
-          </button>
-        </div>
-      </div>
-
-      {/* Bottom Controls */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10 flex items-center gap-6">
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] uppercase font-mono opacity-50">Zoom Level</label>
-          <input
-            type="range"
-            min="0.1"
-            max="3"
-            step="0.1"
-            value={zoom}
-            onChange={(e) => setZoom(parseFloat(e.target.value))}
-            className="w-24 accent-white"
-          />
-        </div>
-
-        <div className="h-8 w-[1px] bg-white/10" />
-
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] uppercase font-mono opacity-50">Time Step ({timeStep.toFixed(3)})</label>
-          <input
-            type="range"
-            min="0.001"
-            max="0.1"
-            step="0.001"
-            value={timeStep}
-            onChange={(e) => setTimeStep(parseFloat(e.target.value))}
-            className="w-24 accent-white"
-          />
-        </div>
-
-        <div className="h-8 w-[1px] bg-white/10" />
-
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] uppercase font-mono opacity-50">Sim Speed ({stepsPerFrame}x)</label>
-          <input
-            type="range"
-            min="1"
-            max="50"
-            step="1"
-            value={stepsPerFrame}
-            onChange={(e) => setStepsPerFrame(parseInt(e.target.value))}
-            className="w-24 accent-white"
-          />
-        </div>
-
-        <div className="h-8 w-[1px] bg-white/10" />
-
-        <div className="flex gap-4">
-          {bodies.map((body, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: body.color, boxShadow: `0 0 8px ${body.color}` }}
-              />
-              <span className="text-xs font-mono opacity-80">M:{body.mass}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Info Panel */}
-      <div className="absolute bottom-8 right-8 z-10">
-        <div className="group relative">
-          <button className="p-3 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 transition-all">
-            <Info size={18} className="opacity-50" />
-          </button>
-          <div className="absolute bottom-full right-0 mb-4 w-64 p-4 bg-black/80 backdrop-blur-2xl rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-            <h3 className="text-sm font-bold mb-2">Simulation Details</h3>
-            <p className="text-xs opacity-70 leading-relaxed">
-              This visualizer uses a semi-implicit Euler integration method to solve the N-body problem.
-              The three-body problem is famously chaotic, meaning small changes in initial conditions
-              lead to vastly different outcomes over time.
-            </p>
+      {/* Right Sidebar Control Panel */}
+      <div className="absolute top-0 right-0 h-full w-72 p-4 pb-12 z-10 pointer-events-none flex flex-col gap-2 overflow-y-auto overflow-x-hidden transition-all">
+        {/* Scenario Presets - Compact */}
+        <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-2.5 rounded-2xl border border-white/10 flex flex-col gap-2">
+          <h2 className="text-[8px] font-bold uppercase tracking-widest opacity-40 ml-1">Universal Presets</h2>
+          <div className="grid grid-cols-2 gap-1">
+            {Object.entries(SCENARIOS).map(([key, scenario]) => (
+              <button
+                key={key}
+                onClick={() => loadScenario(key as keyof typeof SCENARIOS)}
+                className="text-left px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg transition-all"
+              >
+                <div className="text-[9px] font-bold whitespace-nowrap overflow-hidden text-ellipsis opacity-80">{scenario.label}</div>
+              </button>
+            ))}
           </div>
+        </div>
+
+        {/* Title & Core Controls */}
+        <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-3 rounded-2xl border border-white/10 flex flex-col gap-2.5">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-lg font-bold tracking-tighter uppercase italic leading-none">
+                {bodies.length}-Body System
+              </h1>
+              <p className="text-[8px] font-mono opacity-30 uppercase tracking-widest mt-0.5">
+                Gravitational Dynamics
+              </p>
+            </div>
+            <button
+              onClick={() => setShowTrails(!showTrails)}
+              className={`p-1.5 rounded-lg transition-all border ${showTrails ? 'bg-white/20 border-white/30' : 'bg-transparent border-white/10 opacity-50'}`}
+              title="Toggle Trails"
+            >
+              <Activity size={12} />
+            </button>
+          </div>
+
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              className="flex-1 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg transition-all border border-white/10 flex items-center justify-center gap-1.5"
+            >
+              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+              <span className="text-[9px] uppercase font-bold tracking-tight">{isPlaying ? 'Pause' : 'Resume'}</span>
+            </button>
+            <button
+              onClick={resetSimulation}
+              className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg transition-all border border-white/10"
+              title="Reset"
+            >
+              <RotateCcw size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* Simulation Settings */}
+        <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10 flex flex-col gap-3">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-[9px] uppercase font-mono opacity-50">
+                <label>Zoom</label>
+                <span>{zoom.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="3"
+                step="0.1"
+                value={zoom}
+                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                className="w-full accent-white h-1"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-[9px] uppercase font-mono opacity-50">
+                <label>Time Step</label>
+                <span>{timeStep.toFixed(3)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.001"
+                max="0.1"
+                step="0.001"
+                value={timeStep}
+                onChange={(e) => setTimeStep(parseFloat(e.target.value))}
+                className="w-full accent-white h-1"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-[9px] uppercase font-mono opacity-50">
+                <label>Sim Speed</label>
+                <span>{stepsPerFrame}x</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                step="1"
+                value={stepsPerFrame}
+                onChange={(e) => setStepsPerFrame(parseInt(e.target.value))}
+                className="w-full accent-white h-1"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Bodies & Mass */}
+        <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-3 rounded-2xl border border-white/10 flex flex-col gap-2">
+          <h2 className="text-[9px] font-bold uppercase tracking-widest opacity-50 mb-1">Dynamics Control</h2>
+          <div className="flex flex-col gap-2">
+            {bodies.map((body, i) => (
+              <div key={i} className="flex flex-col gap-1.5 p-2 bg-white/5 rounded-lg border border-white/5">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: body.color, boxShadow: `0 0 5px ${body.color}` }}
+                    />
+                    <span className="text-[9px] font-mono uppercase opacity-40">Body {i + 1}</span>
+                  </div>
+                  {!isPlaying && (
+                    <span className="text-[8px] font-mono opacity-20 uppercase tracking-tighter italic">Manual Mode</span>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[7px] uppercase font-mono opacity-30">Mass</label>
+                    <input
+                      type="number"
+                      value={Math.round(body.mass)}
+                      onChange={(e) => updateBody(i, { mass: Math.max(1, parseInt(e.target.value) || 0) })}
+                      className="bg-black/30 border border-white/5 rounded px-1 py-0.5 text-[9px] font-mono w-full focus:border-white/20 outline-none transition-colors"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[7px] uppercase font-mono opacity-30">X Pos</label>
+                    <input
+                      type="number"
+                      value={Math.round(body.x)}
+                      disabled={isPlaying}
+                      onChange={(e) => updateBody(i, { x: parseInt(e.target.value) || 0 })}
+                      className={`bg-black/30 border border-white/5 rounded px-1 py-0.5 text-[9px] font-mono w-full focus:border-white/20 outline-none transition-colors ${isPlaying ? 'opacity-30 cursor-not-allowed' : 'opacity-100 hover:border-white/10'}`}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[7px] uppercase font-mono opacity-30">Y Pos</label>
+                    <input
+                      type="number"
+                      value={Math.round(body.y)}
+                      disabled={isPlaying}
+                      onChange={(e) => updateBody(i, { y: parseInt(e.target.value) || 0 })}
+                      className={`bg-black/30 border border-white/5 rounded px-1 py-0.5 text-[9px] font-mono w-full focus:border-white/20 outline-none transition-colors ${isPlaying ? 'opacity-30 cursor-not-allowed' : 'opacity-100 hover:border-white/10'}`}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Live Distances */}
+        {bodies.length > 1 && (
+          <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10 flex flex-col gap-2">
+            <h2 className="text-[9px] font-bold uppercase tracking-widest opacity-50 mb-1">Proximity (AU)</h2>
+            <div className="flex flex-col gap-1.5">
+              {(() => {
+                const pairs = [];
+                for (let i = 0; i < bodies.length; i++) {
+                  for (let j = i + 1; j < bodies.length; j++) {
+                    const dx = bodies[i].x - bodies[j].x;
+                    const dy = bodies[i].y - bodies[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    pairs.push({ i, j, dist });
+                  }
+                }
+                return pairs.map((pair, idx) => (
+                  <div key={idx} className="flex items-center justify-between px-3 py-1.5 bg-white/5 rounded-lg border border-white/5">
+                    <div className="flex items-center gap-1.5">
+                        <div className="flex gap-0.5">
+                            <div className="w-1 h-2 rounded-full opacity-60" style={{ backgroundColor: bodies[pair.i].color }} />
+                            <div className="w-1 h-2 rounded-full opacity-60" style={{ backgroundColor: bodies[pair.j].color }} />
+                        </div>
+                        <span className="text-[9px] font-mono opacity-50">B{pair.i + 1}↔{pair.j + 1}</span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold">{(pair.dist / 10).toFixed(1)} AU</span>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Info Panel - Simplified */}
+        <div className="pointer-events-auto mt-auto bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10">
+          <div className="flex items-center gap-2 mb-1.5 opacity-40">
+              <Info size={12} />
+              <h3 className="text-[9px] font-bold uppercase tracking-widest">Physics</h3>
+          </div>
+          <p className="text-[10px] opacity-60 leading-tight font-sans italic">
+            Chaotic 3-body simulation using semi-implicit Euler integration.
+          </p>
         </div>
       </div>
 
