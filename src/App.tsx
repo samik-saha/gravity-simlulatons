@@ -45,6 +45,10 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [timeStep, setTimeStep] = useState(0.05);
   const [stepsPerFrame, setStepsPerFrame] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const hasMoved = useRef(false);
+  const lastMousePos = useRef({ x: 0, y: 0 });
   const requestRef = useRef<number>(null);
 
   const updatePhysics = (currentBodies: Body[], currentTs: number) => {
@@ -62,7 +66,7 @@ export default function App() {
         const dy = nextBodies[j].y - nextBodies[i].y;
         const distSq = dx * dx + dy * dy;
         const dist = Math.sqrt(distSq);
-        
+
         // Softening factor to prevent infinite force at zero distance
         const softening = 5;
         const force = (G * nextBodies[j].mass) / (distSq + softening);
@@ -129,7 +133,7 @@ export default function App() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.save();
-      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.translate(canvas.width / 2 + offset.x, canvas.height / 2 + offset.y);
       ctx.scale(zoom, zoom);
 
       // Draw trails
@@ -155,7 +159,7 @@ export default function App() {
         ctx.arc(body.x, body.y, Math.sqrt(body.mass) * 1.5, 0, Math.PI * 2);
         ctx.fillStyle = body.color;
         ctx.fill();
-        
+
         // Glow effect
         ctx.shadowBlur = 15;
         ctx.shadowColor = body.color;
@@ -176,24 +180,113 @@ export default function App() {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(renderId);
     };
-  }, [bodies, zoom, showTrails]);
+  }, [bodies, zoom, showTrails, offset]);
+
+  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+    setIsDragging(true);
+    hasMoved.current = false;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    lastMousePos.current = { x: clientX, y: clientY };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDragging) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    const dx = clientX - lastMousePos.current.x;
+    const dy = clientY - lastMousePos.current.y;
+
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      hasMoved.current = true;
+    }
+
+    setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    lastMousePos.current = { x: clientX, y: clientY };
+  };
+
+  const handleMouseUp = (e: React.MouseEvent | React.TouchEvent) => {
+    if (isDragging && !hasMoved.current) {
+      handleClick(e);
+    }
+    setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleClick = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let clientX, clientY;
+    if ('changedTouches' in e) {
+      clientX = e.changedTouches[0].clientX;
+      clientY = e.changedTouches[0].clientY;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    const worldX = (x - canvas.width / 2 - offset.x) / zoom;
+    const worldY = (y - canvas.height / 2 - offset.y) / zoom;
+
+    const clickedBodyIndex = bodies.findIndex(body => {
+      const dx = body.x - worldX;
+      const dy = body.y - worldY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const radius = Math.sqrt(body.mass) * 1.5;
+      return dist <= radius + 10 / zoom;
+    });
+
+    if (clickedBodyIndex !== -1) {
+      if (bodies.length > 1) {
+        setBodies(prev => prev.filter((_, i) => i !== clickedBodyIndex));
+      }
+    } else if (bodies.length < 3) {
+      const newBody: Body = {
+        x: worldX,
+        y: worldY,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
+        mass: 50 + Math.random() * 100,
+        color: COLORS.find(c => !bodies.some(b => b.color === c)) || COLORS[bodies.length % COLORS.length],
+        trail: [],
+      };
+      setBodies(prev => [...prev, newBody]);
+    }
+  };
 
   const resetSimulation = () => {
     setBodies(generateRandomBodies());
+    setOffset({ x: 0, y: 0 });
   };
 
   return (
     <div className="relative w-full h-screen bg-[#0a0a0a] overflow-hidden font-sans text-white">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full cursor-move"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleMouseDown}
+        onTouchMove={handleMouseMove}
+        onTouchEnd={handleMouseUp}
+        className={`absolute inset-0 w-full h-full ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
       />
 
       {/* UI Overlay */}
       <div className="absolute top-0 left-0 p-8 z-10 pointer-events-none w-full flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-bold tracking-tighter uppercase italic mb-1">
-            3-Body System
+            {bodies.length}-Body System
           </h1>
           <p className="text-xs font-mono opacity-50 uppercase tracking-widest">
             Gravitational Dynamics Simulation
@@ -254,7 +347,7 @@ export default function App() {
             className="w-24 accent-white"
           />
         </div>
-        
+
         <div className="h-8 w-[1px] bg-white/10" />
 
         <div className="flex flex-col gap-1">
@@ -269,15 +362,15 @@ export default function App() {
             className="w-24 accent-white"
           />
         </div>
-        
+
         <div className="h-8 w-[1px] bg-white/10" />
 
         <div className="flex gap-4">
           {bodies.map((body, i) => (
             <div key={i} className="flex items-center gap-2">
-              <div 
-                className="w-3 h-3 rounded-full" 
-                style={{ backgroundColor: body.color, boxShadow: `0 0 8px ${body.color}` }} 
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: body.color, boxShadow: `0 0 8px ${body.color}` }}
               />
               <span className="text-xs font-mono opacity-80">M:{body.mass}</span>
             </div>
@@ -294,15 +387,16 @@ export default function App() {
           <div className="absolute bottom-full right-0 mb-4 w-64 p-4 bg-black/80 backdrop-blur-2xl rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <h3 className="text-sm font-bold mb-2">Simulation Details</h3>
             <p className="text-xs opacity-70 leading-relaxed">
-              This visualizer uses a semi-implicit Euler integration method to solve the N-body problem. 
-              The three-body problem is famously chaotic, meaning small changes in initial conditions 
+              This visualizer uses a semi-implicit Euler integration method to solve the N-body problem.
+              The three-body problem is famously chaotic, meaning small changes in initial conditions
               lead to vastly different outcomes over time.
             </p>
           </div>
         </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         input[type=range] {
           -webkit-appearance: none;
           background: rgba(255, 255, 255, 0.1);

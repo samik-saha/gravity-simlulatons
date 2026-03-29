@@ -1,5 +1,5 @@
 {
-  "name": "3-Body System Visualizer",
+  "name": "Gravity Simulations",
   "description": "An interactive simulation of the gravitational three-body problem using Newtonian physics.",
   "requestFramePermissions": []
 }
