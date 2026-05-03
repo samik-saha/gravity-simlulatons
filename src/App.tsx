@@ -62,8 +62,6 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trailsRef = useRef<Record<string, { x: number; y: number }[]>>({});
   const bodiesRef = useRef<Body[]>(SCENARIO_DATA.BINARY_STAR());
-  
-  // Camera Refs for ultra-fluid panning/zooming
   const offsetRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
 
@@ -193,7 +191,7 @@ export default function App() {
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate);
     return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
-  }, [isPlaying, timeStep, stepsPerFrame, showTrails, showVectors]); // Depend on showTrails to refresh loop closure if needed
+  }, [isPlaying, timeStep, stepsPerFrame, showTrails, showVectors]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -274,34 +272,18 @@ export default function App() {
     e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // Convert mouse to relative-from-center
-    const cx = mouseX - canvas.width / 2;
-    const cy = mouseY - canvas.height / 2;
-
+    const cx = (e.clientX - rect.left) - canvas.width / 2;
+    const cy = (e.clientY - rect.top) - canvas.height / 2;
     const zoom = zoomRef.current;
     const offset = offsetRef.current;
-
-    // Current world coordinates under the mouse
     const worldX = (cx - offset.x) / zoom;
     const worldY = (cy - offset.y) / zoom;
-
     const zoomSpeed = 0.0015;
-    const delta = -e.deltaY;
-    const newZoom = Math.max(0.05, Math.min(10, zoom * (1 + delta * zoomSpeed)));
-
+    const newZoom = Math.max(0.05, Math.min(10, zoom * (1 + (-e.deltaY) * zoomSpeed)));
     zoomRef.current = newZoom;
     setZoomUI(newZoom);
-
-    // Update offset to zoom towards cursor
-    offsetRef.current = {
-      x: cx - worldX * newZoom,
-      y: cy - worldY * newZoom
-    };
+    offsetRef.current = { x: cx - worldX * newZoom, y: cy - worldY * newZoom };
   };
 
   const handleMouseUp = (e: React.MouseEvent | React.TouchEvent) => {
@@ -364,8 +346,7 @@ export default function App() {
     bodiesRef.current = SCENARIO_DATA.BINARY_STAR();
     trailsRef.current = {};
     offsetRef.current = { x: 0, y: 0 };
-    zoomRef.current = 1;
-    setZoomUI(1);
+    zoomRef.current = 1; setZoomUI(1);
     setTick(t => t + 1);
   };
 
@@ -388,6 +369,40 @@ export default function App() {
       />
 
       <div className="absolute top-0 right-0 h-full w-72 p-4 pb-12 z-10 pointer-events-none flex flex-col gap-2 overflow-y-auto overflow-x-hidden transition-all">
+        {/* Header Section */}
+        <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-3.5 rounded-2xl border border-white/10 flex flex-col gap-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-lg font-bold tracking-tighter uppercase italic leading-none text-white">
+                {bodiesRef.current.length}-Body System
+              </h1>
+              <div className="flex items-center gap-1.5 mt-1 opacity-30">
+                <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />
+                <p className="text-[7px] font-mono uppercase tracking-widest whitespace-nowrap">Orbital Engine Live</p>
+              </div>
+            </div>
+            <div className="flex gap-1">
+              <button onClick={() => setShowVectors(!showVectors)} className={`p-1.5 rounded-lg transition-all border ${showVectors ? 'bg-white/20 border-white/30 text-white' : 'bg-transparent border-white/10 text-white/40'}`} title="Velocity Vectors">
+                <Navigation size={12} />
+              </button>
+              <button onClick={() => setShowTrails(!showTrails)} className={`p-1.5 rounded-lg transition-all border ${showTrails ? 'bg-white/20 border-white/30 text-white' : 'bg-transparent border-white/10 text-white/40'}`} title="Path Trails">
+                <Activity size={12} />
+              </button>
+            </div>
+          </div>
+          
+          <div className="flex gap-1.5">
+            <button onClick={() => setIsPlaying(!isPlaying)} className="flex-1 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg transition-all border border-white/10 flex items-center justify-center gap-1.5">
+              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+              <span className="text-[9px] uppercase font-bold tracking-tight">{isPlaying ? 'Pause' : 'Resume'}</span>
+            </button>
+            <button onClick={resetSimulation} className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg transition-all border border-white/10" title="Reset">
+              <RotateCcw size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* Presets Section */}
         <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-2.5 rounded-2xl border border-white/10 flex flex-col gap-2">
           <h2 className="text-[8px] font-bold uppercase tracking-widest opacity-40 ml-1">Universal Presets</h2>
           <div className="grid grid-cols-2 gap-1">
@@ -399,26 +414,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-3 rounded-2xl border border-white/10 flex flex-col gap-2.5">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-lg font-bold tracking-tighter uppercase italic leading-none">{bodiesRef.current.length}-Body System</h1>
-              <p className="text-[8px] font-mono opacity-30 uppercase tracking-widest mt-0.5">Gravitational Dynamics</p>
-            </div>
-            <div className="flex gap-1">
-              <button onClick={() => setShowVectors(!showVectors)} className={`p-1.5 rounded-lg transition-all border ${showVectors ? 'bg-white/20 border-white/30 text-white' : 'bg-transparent border-white/10 text-white/40'}`} title="Toggle Vectors"><Navigation size={12} /></button>
-              <button onClick={() => setShowTrails(!showTrails)} className={`p-1.5 rounded-lg transition-all border ${showTrails ? 'bg-white/20 border-white/30 text-white' : 'bg-transparent border-white/10 text-white/40'}`} title="Toggle Trails"><Activity size={12} /></button>
-            </div>
-          </div>
-          <div className="flex gap-1.5">
-            <button onClick={() => setIsPlaying(!isPlaying)} className="flex-1 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg transition-all border border-white/10 flex items-center justify-center gap-1.5">
-              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
-              <span className="text-[9px] uppercase font-bold tracking-tight">{isPlaying ? 'Pause' : 'Resume'}</span>
-            </button>
-            <button onClick={resetSimulation} className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-lg transition-all border border-white/10" title="Reset"><RotateCcw size={12} /></button>
-          </div>
-        </div>
-
+        {/* Accuracy and Speed Controls */}
         <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10 flex flex-col gap-3">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
@@ -432,6 +428,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* Dynamics Control */}
         <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-3 rounded-2xl border border-white/10 flex flex-col gap-2">
           <h2 className="text-[9px] font-bold uppercase tracking-widest opacity-50 mb-1">Dynamics Control</h2>
           <div className="flex flex-col gap-2">
@@ -463,6 +460,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* Proximity Analysis */}
         {bodiesRef.current.length > 1 && (
           <div className="pointer-events-auto bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10 flex flex-col gap-2">
             <h2 className="text-[9px] font-bold uppercase tracking-widest opacity-50 mb-1">Proximity (AU)</h2>
@@ -491,6 +489,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Physics Footer */}
         <div className="pointer-events-auto mt-auto bg-black/40 backdrop-blur-xl p-4 rounded-2xl border border-white/10">
           <div className="flex items-center gap-2 mb-1.5 opacity-40"><Info size={12} /><h3 className="text-[9px] font-bold uppercase tracking-widest">Physics</h3></div>
           <p className="text-[10px] opacity-60 leading-tight font-sans italic">Chaotic 3-body simulation using semi-implicit Euler integration.</p>
